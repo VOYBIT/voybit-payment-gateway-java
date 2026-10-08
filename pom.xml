@@ -2,9 +2,9 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.voybit</groupId>
   <artifactId>payment-gateway</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <name>Voybit payment gateway</name>
-  <description>Create a Voybit payment and verify its webhook.</description>
+  <description>Create buyer-choice Voybit checkout sessions and verify webhooks.</description>
   <url>https://github.com/VOYBIT/voybit-payment-gateway-java</url>
   <licenses>
     <license>

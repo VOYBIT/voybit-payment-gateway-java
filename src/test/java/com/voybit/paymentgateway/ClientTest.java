@@ -17,10 +17,59 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class ClientTest {
     public static void main(String[] args) throws Exception {
         testCreatePayment();
+        testCreateCheckoutSession();
         testValidationIsNotRetried();
         testWebhook();
         testJsonRoundTrip();
         System.out.println("java ok");
+    }
+
+    private static void testCreateCheckoutSession() throws Exception {
+        AtomicReference<byte[]> seen = new AtomicReference<>();
+        AtomicReference<String> path = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v1/gateway/checkout-sessions", exchange -> {
+            path.set(exchange.getRequestURI().getPath());
+            seen.set(exchange.getRequestBody().readAllBytes());
+            byte[] payload = """
+                    {"session_id":"7155d76a-9f81-40eb-9233-878aac50eb20","public_id":"nYVvXxsYGr5LZk8Dn7hU0Q","status":"open","checkout_url":"https://voybit.com/pay/nYVvXxsYGr5LZk8Dn7hU0Q","fiat_amount":"25.00","fiat_currency":"USD"}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("X-Request-ID", "req_session_1");
+            exchange.sendResponseHeaders(201, payload.length);
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write(payload);
+            }
+        });
+        server.start();
+        try {
+            Client client = new Client("vb_test_example_secret", base(server));
+            CreatedCheckoutSession created = client.createCheckoutSession(new CreateCheckoutSessionRequest()
+                    .fiatAmount("25.00")
+                    .fiatCurrency("USD")
+                    .description("Order 1001")
+                    .metadata(Map.of("order_id", "1001"))
+                    .paymentWindowSeconds(1800),
+                    "order:1001:attempt:1");
+            check("/api/v1/gateway/checkout-sessions".equals(path.get()), "session path");
+            check("open".equals(created.checkoutSession().status()), "session status");
+            check("7155d76a-9f81-40eb-9233-878aac50eb20".equals(created.checkoutSession().sessionId()), "session id");
+            check("req_session_1".equals(created.requestId()), "session request id");
+            Map<String, Object> body = Json.object(new String(seen.get(), StandardCharsets.UTF_8));
+            check("25.00".equals(body.get("fiat_amount")), "fiat amount");
+            check(!body.containsKey("asset_id") && !body.containsKey("crypto_amount"), "buyer chooses asset");
+        } finally {
+            server.stop(0);
+        }
+
+        try {
+            new Client("vb_test_example_secret").createCheckoutSession(
+                    new CreateCheckoutSessionRequest().fiatAmount("0").fiatCurrency("USD"),
+                    "order:1001:attempt:1"
+            );
+            throw new AssertionError("zero fiat amount was accepted");
+        } catch (IllegalArgumentException expected) {
+            check(expected.getMessage().contains("positive decimal"), "amount validation");
+        }
     }
 
     private static void testCreatePayment() throws Exception {
